@@ -1,0 +1,4 @@
+black
+pynmea2
+PyQt5
+pyqt5-tools
