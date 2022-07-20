@@ -2,7 +2,7 @@ import sys
 from threading import Thread
 
 import pynmea2
-from PyQt5.QtCore import QDateTime, QFile, QIODevice, QTextStream
+from PyQt5.QtCore import QDateTime, QFile, QDir, QIODevice, QTextStream
 from PyQt5.QtSerialPort import QSerialPort, QSerialPortInfo
 from PyQt5.QtWidgets import QApplication, QGridLayout, QLabel, QMainWindow, QWidget
 
@@ -171,13 +171,13 @@ class Main(QMainWindow):
         self.ui.pushButton_showGSV.clicked.connect(self.onShowGSV)
         self.ui.pushButton_showRMC.clicked.connect(self.onShowRMC)
         self.ui.pushButton_showVTG.clicked.connect(self.onShowVTG)
-
-        # self.printData(pynmea2.parse("$GPGGA,123252.50,5028.01141,N,03028.16118,E,1,04,5.99,181.9,M,25.8,M,,*5F"))
-        # self.printData(pynmea2.parse("$GNGLL,5546.95900,N,03740.69200,E,102030.000,A*20"))
-        # self.printData(pynmea2.parse("$GPGSA,A,3,14,13,01,,,,,,,,,,6.84,5.99,3.32*09"))
-        # self.printData(pynmea2.parse("$GPGSV,3,3,12,21,75,089,23,26,33,222,31,27,38,298,40,29,15,127,,0*61"))
-        # self.printData(pynmea2.parse("$GPRMC,123253.00,A,5028.01116,N,03028.16185,E,1.100,,110122,,,A*7F"))
-        # self.printData(pynmea2.parse("$GNVTG,49.75,T,,M,0.12,N,0.22,K,A*1F"))
+        
+        # check output log folder
+        if QDir("log").exists() == False:
+            QDir().mkdir("log")
+                
+        self.outputFilePath = "log/output.log"
+        self.outputCounter = 0
 
     def onOpenDevice(self):
         # create serial
@@ -189,13 +189,14 @@ class Main(QMainWindow):
             stopBits=QSerialPort.StopBits.OneStop,
         )
         # open device
-        if self.serial.open(QIODevice.OpenModeFlag.ReadOnly):
-            self.printLog("Device is open", "green")
+        if self.serial.open(QIODevice.OpenModeFlag.ReadOnly):            
             # switch buttons state
             self.ui.pushButton_openDevice.setEnabled(False)
-            self.ui.pushButton_closeDevice.setEnabled(True)
-            # create log output stream
-            self.onCreateStream()
+            self.ui.pushButton_closeDevice.setEnabled(True)            
+            # generate new output file name
+            self.outputFilePath = self.generateOutputFileName()
+            # write first message
+            self.printLog("Device is open", "green")
         else:
             self.printLog("Device did not open", "red")
 
@@ -214,23 +215,6 @@ class Main(QMainWindow):
                 self.printLog("Device did not open", "orange")
         else:
             self.printLog("Serial error", "red")
-
-    def onCreateStream(self):
-        # create log output stream
-        self.outputFile = QFile(
-            "log/"
-            + QDateTime.currentDateTimeUtc().toString("yyyyMMddTHHmmsszzz")
-            + "_"
-            + namePrefix
-            + ".log"
-        )
-        if self.outputFile.open(
-            QIODevice.OpenModeFlag.WriteOnly | QIODevice.OpenModeFlag.Truncate
-        ):
-            self.outputStream = QTextStream(self.outputFile)
-            self.printLog("Output stream created", "green")
-        else:
-            self.printLog("Output stream did not created", "red")
 
     def onReadyRead(self):
         while self.serial.canReadLine():
@@ -263,6 +247,9 @@ class Main(QMainWindow):
     def onShowVTG(self):
         self.ui.VTGGridWindow.show()
 
+    def generateOutputFileName(self) -> str:
+        return "log/" + QDateTime.currentDateTimeUtc().toString("yyyyMMddTHHmmsszzz") + "_" + namePrefix + ".log"
+
     def printLog(self, msg, color: str = "black"):
         datetime = QDateTime.currentDateTimeUtc().toString("yyyy-MM-ddTHH:mm:ss.zzz")
         output = '<span style="color: %s">%s: %s</span>' % (
@@ -270,10 +257,24 @@ class Main(QMainWindow):
             datetime,
             msg,
         )
+        
+        if (self.outputCounter > 100):
+            self.outputCounter = 0
+            self.ui.textEdit_output.clear()
+        else:
+            self.outputCounter += 1
+        
         self.ui.textEdit_output.append(output)
 
-        if hasattr(self, "outputStream"):
-            self.outputStream << datetime << " " << msg << "\n"
+        # open output file
+        outputFile = QFile(self.outputFilePath)
+        if outputFile.open(
+            QIODevice.OpenModeFlag.Append
+        ):
+            QTextStream(outputFile) << datetime << " " << msg << "\n"
+            outputFile.close()
+        else:
+            self.ui.textEdit_output.append("OUTPUTSTREAM ERROR!")
 
     def printData(self, obj: pynmea2.nmea.NMEASentence):
         self.ui.statusbar.showMessage(repr(obj))
